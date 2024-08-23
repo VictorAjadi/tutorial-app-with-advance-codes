@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course request acceptance</title>
+    <style>
+        @media only screen and (max-width: 600px) {
+            .content {
+                width: 100% !important;
+            }
+            .header, .body, .footer {
+                padding: 20px !important;
+            }
+            .header {
+                font-size: 20px !important;
+            }
+            .body {
+                font-size: 14px !important;
+            }
+            .cta-button {
+                padding: 10px 20px !important;
+                font-size: 14px !important;
+            }
+        }
+    </style>
+</head>
+<body style="font-family: 'Poppins', Arial, sans-serif; margin: 0; padding: 0;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+        <tr>
+            <td align="center" style="padding: 20px;">
+                <table class="content" width="600" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #cccccc;">
+                    <!-- Header -->
+                    <tr>
+                        <td class="header" style="background-color: #0d6efd; padding: 40px; text-align: center; color: white; font-size: 24px;">
+                            <span style="font-size: 50px;">Devon Tutorial</span><br>
+                            <strong>Course Request Acceptance</strong>
+                        </td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                        <td class="body" style="padding: 40px; text-align: left; font-size: 16px; line-height: 1.6;">
+                            <strong>Hello, {{%studentname%}}</strong> <br><br>
+                            you have be accepted to access the course with course titled <span><strong>{{%coursetitle%}}</strong></span> which you sent an enrollment request for.
+                        </td>
+                    </tr>
+
+                    <!-- Call to action Button -->
+                    <tr>
+                        <td class="body" style="padding: 40px; text-align: left; font-size: 16px; line-height: 1.6;text-wrap: wrap;">
+                          If you have anything to say to the course instructor, kindly send a mail via this email address <span><strong>{{%instructoremail%}}</strong></span>.    
+                        </td>
+                    </tr>
+                                        
+                    <!-- Footer -->
+                    <tr>
+                        <td class="footer" style="background-color: #000000; padding: 40px; text-align: center; color: white; font-size: 14px;">
+                            Copyright &copy; 2024 | Devon
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
