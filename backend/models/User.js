@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const validator = require("validator");
+const { applyCacheToQueries } = require("../config/cache");
+
 
 const userSchema = new mongoose.Schema({
     name: {
@@ -26,6 +28,7 @@ const userSchema = new mongoose.Schema({
     },
     mobile_number: {
         type: String,
+        unique: true,
         validate: {
             validator: function(value) {
                 return validator.isMobilePhone(value);
@@ -57,11 +60,16 @@ const userSchema = new mongoose.Schema({
             message: props => `${props.value} does not match the password.`
         }
     },
+    oauthProvider: {
+        type: String,
+        enum: ['google', 'facebook', 'twitter', 'github', 'none'], // Add more providers if needed
+        default: 'none'
+    },
     profile_image: {
         type: String,
         trim: true
     },
-    profileImageId:{
+    profileImageId: {
         type: String,
         select: false
     },
@@ -69,23 +77,34 @@ const userSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
-    coverImageId:{
+    coverImageId: {
         type: String,
         select: false
     },
+    profession: String,
+    address: String,
+    website: String,
+    github: String,
+    twitter: String,
+    facebook: String,
+    skills: Array,
     active: {
         type: Boolean,
-        default: true,
-        select: false
+        default: true
     },
     inactiveAt: {
         type: Date,
         select: false
     },
+    suspended: {
+        type: Boolean,
+        default: false,
+        select: false
+    },
     role: {
         type: String,
         default: "student",
-        enum: ["student", "instructor", "admin"],
+        enum: ["student", "instructor", "admin", "sub-admin"],
         select: false
     },
     passwordChangedAt: {
@@ -96,8 +115,40 @@ const userSchema = new mongoose.Schema({
     },
     resetTokenExpiresIn: {
         type: Date
+    },
+    // New fields for user account details
+    paypal_id: {
+        type: String,
+        trim: true,
+        select: false,
+        unique: true,  // Ensures each PayPal ID is unique in the database
+      },
+    paymentProvider: {
+        type: String,
+        select: false
     }
 }, { timestamps: true });
+
+userSchema.pre(/^(update|updateMany|updateOne|find.*AndUpdate)$/, function (next) {
+    const update = this.getUpdate();
+
+    if (update.role === "student") {
+      // Set fields to undefined to remove them for students
+      update.website = undefined;
+      update.github = undefined;
+      update.twitter = undefined;
+      update.facebook = undefined;
+      update.skills = undefined;
+      update.profession = undefined;
+      update.paypal_id = undefined;
+      update.paymentProvider = undefined;
+    } else {
+      // Set enroll to undefined for non-students
+      update.enroll = undefined;
+    }
+
+    next();
+});
 
 userSchema.pre("save", async function(next) {
     if (this.isModified("password")) {
@@ -110,10 +161,22 @@ userSchema.pre("save", async function(next) {
   }
 });
 
-userSchema.pre(/^find/, function(next) {
-    this.find({ active: { $ne: false } });
+userSchema.pre(/^find/, function (next) {
+    // Ensure skipMiddleware is checked correctly and combined query is set
+    if (!this.getOptions().skipMiddleware) {
+      // Combine both conditions in a single .find() call
+      this.find({
+        active: { $ne: false },
+        suspended: false,
+        $or: [
+          { role: "student" },
+          { role: "instructor" }
+        ]
+      });
+    }
     next();
 });
+
 
 userSchema.methods.comparePassword = async function(candidatePassword, userPassword) {
     return await bcrypt.compare(candidatePassword, userPassword);
@@ -137,7 +200,8 @@ userSchema.methods.createResetToken = async function() {
 userSchema.methods.isResetTokenExpired = function() {
     return Date.now() > this.resetTokenExpiresIn;
 };
-
+// Apply cache middleware to the schema
+applyCacheToQueries(userSchema);
 const User = mongoose.model("User", userSchema);
 
 module.exports = User;

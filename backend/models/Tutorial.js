@@ -1,4 +1,5 @@
-const mongoose=require("mongoose")
+const mongoose=require("mongoose");
+const { applyCacheToQueries } = require("../config/cache");
 
 const tutorialSchema = new mongoose.Schema({
     title: { type: String,required: [true, "Please provide this video title..."]},
@@ -25,6 +26,8 @@ const tutorialSchema = new mongoose.Schema({
 
 tutorialSchema.index({ title: 'text', description: 'text' });
 
+// Apply cache middleware to the schema
+applyCacheToQueries(tutorialSchema);
 
 const Tutorial=mongoose.model("Tutorial",tutorialSchema);
 

@@ -1,0 +1,1 @@
+import{r as t,j as o}from"./index-u5watr16.js";function c(){const[r,s]=t.useState(120);return t.useEffect(()=>{const n=setInterval(()=>{s(e=>e<=0?0:e-1)},1e3);return()=>{clearInterval(n)}},[]),o.jsxs("div",{children:[r," secs remaining"]})}export{c as T};

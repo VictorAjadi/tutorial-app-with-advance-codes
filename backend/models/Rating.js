@@ -1,4 +1,5 @@
-const mongoose=require("mongoose")
+const mongoose=require("mongoose");
+const { applyCacheToQueries } = require("../config/cache");
 
 const ratingSchema = new mongoose.Schema({
     student:{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: [true, "You have to login before you can rate this course..."] },
@@ -7,7 +8,7 @@ const ratingSchema = new mongoose.Schema({
     course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true }
   },{timestamps: true});  
 
-
+applyCacheToQueries(ratingSchema);
 
 const Rating=mongoose.model("Rating",ratingSchema);
 

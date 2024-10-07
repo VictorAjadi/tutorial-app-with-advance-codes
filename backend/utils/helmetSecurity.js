@@ -1,10 +1,11 @@
 exports.secureHelmet={   
     contentSecurityPolicy:{
         directives: {
-            defaultSrc: ["'self'","https://res.cloudinary.com"],
-            imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com'],
-            scriptSrc: ["'self'"],
-            mediaSrc: ["'self'", "https://res.cloudinary.com"],
+            defaultSrc: ["'self'"],
+            connectSrc: ["'self'", 'http://res.cloudinary.com', 'https://res.cloudinary.com','https://fonts.googleapis.com','https://unpkg.com/boxicons@2.1.4','https://cdnjs.cloudflare.com'],
+            imgSrc: ['*','data:', 'blob:'],
+            scriptSrc: ["'self'","unsafe-eval"],
+            mediaSrc: ["'self'", 'data:', 'blob:',"https://res.cloudinary.com"],
             objectSrc: ["'none'"],
             upgradeInsecureRequests: [],
           }

@@ -19,12 +19,19 @@ const { generateSignaturedUrl } = require('./utils/generateSignaturedUrl');
 const { videoStreamSignaturedUrl } = require('./utils/streamFromSignedUrl');
 const { sendContactMail } = require('./utils/contactMailing');
 const { secureHelmet } = require('./utils/helmetSecurity');
+const compression = require('compression');
+const { schedulePaymentJob } = require('./utils/autoPayment');
+const flash=require('connect-flash')
+//const User = require('./models/User');
+const { default: mongoose } = require('mongoose');
+
 //passport config
 const app = express();
 
 // Middleware to parse cookies
 app.use(cookieParser()); 
 
+  
 // Enable express middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // Parse URL-encoded bodies (form submissions)
@@ -33,9 +40,17 @@ app.use(session({
     secret: process.env.SECRET_KEY,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === 'production' }
+    cookie: { 
+       secure: process.env.NODE_ENV === 'production',  
+       maxAge: parseInt(process.env.JWT_EXPIRES_IN.split('h')[0], 10) * 3600 * 1000
+    }
 }));
-  
+app.use(flash());
+app.use((req,res,next)=>{
+    res.locals.success_msg=req.flash('success')
+    res.locals.error_msg=req.flash('error')
+    next();
+})
 app.use(passport.initialize());
 app.use(passport.session()); 
 require("./config/passport");
@@ -64,6 +79,18 @@ const sanitizeObject = (obj) => {
 };
 
 app.use(sanitizeInput); // Apply the middleware to all routes
+app.use(compression());
+//************update all schema******************** */
+ app.use(async(req,res,next)=>{
+/*     await Payment.updateMany({},{$set: {paidInstructorDate: undefined,paidInstructor: false}});
+    console.log('update done') */
+/*     await User.create({
+         name: 'Admin Victor',
+         password: 'samsungs25ultra@',
+         email: 'devonadmin@gmail.com'
+    }) */
+    next();
+}) 
 
 const limiter = rateLimiter({
     max: 1500, //maximum of 1000 request from an app to my api
@@ -76,7 +103,7 @@ const limiter = rateLimiter({
       }
 });
 const limiterForLogin = rateLimiter({
-    max: 3, //maximum of 1000 request from an app to my api
+    max: 5, //maximum of 1000 request from an app to my api
     windowMs: 60 * 60 * 1000, // 1 hour
     handler: (req,res)=>{
       res.status(429).send({
@@ -86,11 +113,12 @@ const limiterForLogin = rateLimiter({
     }
 });
 app.use('/api/user/login', limiterForLogin);
+app.use('/api/admin/login', limiterForLogin);
 app.use('/api*', limiter);
 
 
 if (process.env.NODE_ENV === "development") {
-    const allowedOrigins = ['http://localhost:3000', 'http://localhost:5050'];
+    const allowedOrigins = ['http://localhost:5173', 'http://localhost:5050'];
     app.use(cors({
         origin: function (origin, callback) {
             if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
@@ -106,13 +134,22 @@ if (process.env.NODE_ENV === "development") {
 }else{
     app.use(cors())
 }
+mongoose.connection.on('connected', () => {
+    console.log('MongoDB is ready, starting payment job.');
+    schedulePaymentJob(); // Start the cron job once MongoDB is connected
+  });
+  
+mongoose.connection.on('error', (err) => {
+console.error('MongoDB connection error:', err);
+});
 //**** route middle-wares *****
 app.use("/auth", require("./routes/passportRoute")); // passport router middleware
 app.use("/rating", require("./routes/ratingsRoute")); // rating router middleware
 app.use("/report", require("./routes/reportRoute")); // report router middleware
+app.use("/api/admin", require("./routes/adminRoute")); // admin router middleware
 app.use("/api/user", userRouter); // User router middleware
 app.use("/api/tutorial", tutorialRoute); // tutorial router middleware
-
+app.use("/api/payments", require('./routes/paymentRoute')); // payments router middleware
 //get user session token for login
 app.get("/token", (async (req, res, next) => {
 try{
@@ -133,7 +170,15 @@ try{
  next(error)
 }
 }));
-
+app.get('/flash-messages',(req,res)=>{
+    const error_msg=req.flash('error');
+    console.log(error_msg)
+    res.json({error_msg: error_msg[0]})
+})
+//payment cancel route
+app.get("/payment-cancel/:courseId",(req,res)=>{
+     res.redirect(`/courses/details/${req.params.courseId}`);
+})
 //******generate signature url */
 app.post("/url/signed",protectRoutes, generateSignaturedUrl);
 
@@ -154,10 +199,10 @@ app.get("/logout", (req, res, next) => {
 });
 
 // Serve React app
-app.use(express.static(path.join(__dirname, "./../frontend/build")));
+app.use(express.static(path.join(__dirname, "./../dist")));
 // Serve static files from React build file
 app.get('/*', (req, res) => {
-    res.sendFile(path.join(__dirname, "./../frontend/build", "index.html"));
+    res.sendFile(path.join(__dirname, "./../dist", "index.html"));
 });
 
 // Handle invalid routes

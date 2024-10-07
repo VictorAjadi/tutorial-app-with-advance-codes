@@ -9,7 +9,7 @@ const { empty } = require("../utils/notFoundInModel");
 const { protectRoutes, protectInstructor } = require("../authentication/protect");
 const asyncErrorHandler = require("../utils/asyncErrorHandler");
 const User = require("../models/User");
-const sendEmail = require("../config/email");
+//const sendEmail = require("../config/email");
 const features = require("../utils/apiFeatures");
 const { promisify } = require('util');
 
@@ -43,7 +43,9 @@ const upload = multer({ storage });
 Router.route("/all").get(
   asyncErrorHandler(async (req, res, next) => {
       const queryString = req.query;
-      let featureInstance = new features(Course.find().populate('instructor').populate('tutorial'), queryString);
+      let featureInstance = new features(Course.find().populate({
+        path: "instructor",
+        options: {skipMiddleware: true}}).populate('tutorial').select("-videoUrl"), queryString);
 
       if (req.query.search) {
         featureInstance = await featureInstance.search(req.query.search);
@@ -54,7 +56,7 @@ Router.route("/all").get(
                                        .fields()
                                        .paginate();
 
-      const courses = await featureInstance.queryObject.select("-videoUrl").exec();
+      const courses = await featureInstance.queryObject;
       empty(courses, "Unable to load courses from server, refresh page or try again in an hour time...", 505, next);
 
       return res.status(200).json({
@@ -71,10 +73,11 @@ Router.route("/single/:courseId").get(
  asyncErrorHandler(async(req,res,next)=>{
     const {courseId}=req.params;
     empty(courseId,"Can't locate course ID, refresh the page again...",404,next);
-    const course=await Course.findById(courseId).populate("instructor")
-                                                .populate("tutorial")
-                                                .populate("requests")
-                                                .populate("acceptedrequests").exec();
+    const course=await Course.findById(courseId).populate({
+                                                path: "instructor",
+                                                options: {skipMiddleware: true}})
+                                              .populate("tutorial")
+                                              .exec();
     empty(course,"Failed to load courses from server...",505,next);
     res.status(200).json({
       status: "success",
@@ -84,7 +87,7 @@ Router.route("/single/:courseId").get(
     })
   })
 )
-Router.route("/accept/:courseId/request/:userId").patch(
+/* Router.route("/accept/:courseId/request/:userId").patch(
   protectRoutes,
   protectInstructor,
   asyncErrorHandler(async(req,res,next)=>{
@@ -121,7 +124,7 @@ Router.route("/accept/:courseId/request/:userId").patch(
       })
     }
   })
-)
+) */
 
 Router.route("/enroll/:courseId").patch(
   protectRoutes,
@@ -131,12 +134,10 @@ asyncErrorHandler(async(req,res,next)=>{
     empty(courseId,"Can't locate course ID, try clicking enroll again...",404,next);
     const course=await Course.findById(courseId).populate("instructor")
                                                   .populate("tutorial")
-                                                  .populate("requests")
-                                                  .populate("acceptedrequests")
                                                   .exec();
     empty(course,"Invalid course ID...",404,next);
     let updateUser;
-    if(course.price==="free"){
+    if(course.type==="free"){
       updateUser= await User.findById(req.user._id);
       if((await checkIfCourseExistInUser(updateUser,courseId))) return next(new customError("You have recently enrolled for the course, check enroll page...",400)); 
       updateUser.enroll=[...updateUser.enroll,courseId];
@@ -147,24 +148,7 @@ asyncErrorHandler(async(req,res,next)=>{
         message: "User has been enrolled for this free course, refresh page..."
       })
     }else{
-      if((await checkIfUserExistInInstructorRequests(course,req.user._id))) return next(new customError("An enroll request has been sent for this paid course, but we have sent a mail to the course instructor...",401)); 
-      course.requests=[...course.requests, {student: req.user._id, course: course._id}]
-      const renewedCourse=await course.save({new: true, runValidators: true});
-      empty(renewedCourse,"An Error occured, Unable to send enroll request to the instructor of this course...",500,next);
-      //send enroll request message to this instructor
-      await sendEmail({
-        email: renewedCourse?.instructor.email,
-        instructorName: renewedCourse?.instructor.name,
-        studentEmail: req.user.email,
-        studentName: req.user.name,
-        courseTitle: renewedCourse.title,
-        link: `${req.protocol}://${req.get("host")}`,
-        subject: "Course enrollment request"
-      },"request")
-      return res.status(200).json({
-        status: "success",
-        message: "An enroll message has been sent to the course instructor, kindly wait to be accepted in..."
-      })
+      return res.redirect(`/courses/details/:${courseId}`)
     }
 }))
 
@@ -174,7 +158,7 @@ Router.route('/upload').post(upload.fields([
   { name: 'videos', maxCount: Infinity }
 ]), protectRoutes, protectInstructor, asyncErrorHandler(async (req, res, next) => {
   try {
-    const { category, description, price, title, skill_level } = req.body;
+    const { category, description, type, amount, currency, title, skill_level } = req.body;
     const tutorial = JSON.parse(req.body.tutorial);
 
     if (!req.files.videos || !req.files.thumbnailUrl) {
@@ -232,7 +216,7 @@ Router.route('/upload').post(upload.fields([
     const newCourse = {
       category: category,
       description: description,
-      price: price,
+      type: type,
       title: title,
       instructor: req.user._id,
       skill_level: skill_level,
@@ -242,69 +226,75 @@ Router.route('/upload').post(upload.fields([
       thumbnail_public_id: thumbnailResult.public_id, // Store the public_id for the thumbnail
       tutorial: tutorialData
     };
+    if(type==='paid'){
+      newCourse.currency=currency;
+      newCourse.amount=amount;
+    }
 
     const course = await Course.create(newCourse);
     empty(course, 'Error uploading files...', 501, next);
     return res.status(200).json({ status: 'success', message: 'Upload was successful...' });
   } catch (error) {
+    console.log(error)
     next(new customError('Error uploading files', 500));
   }
 }));
 
-  Router.route('/:id').delete(
-    protectRoutes,
-    protectInstructor,
-    async (req, res, next) => {
-      const { id } = req.params;
-      empty(id,"Can't find this course ID...",404,next);
-      const course=await Course.findOne({_id: id}).populate("instructor")
-                                                      .populate("tutorial")
-                                                      .populate("requests")
-                                                      .populate("acceptedrequests").exec();
-      const {thumbnail_public_id,tutorial,instructor}=course;
-      empty(thumbnail_public_id,"Server Error, Course thumbnail ID not found...", 505,next);
-      empty(tutorial,"Server Error, Course videos not found...", 505,next);
-      if(!(await checkCourseOwnership(instructor,req)))  return next(new customError("Due to ownership policy, this action is not permitted...",400));  
-  
-      try {
-        //delete cover image in cloudinary
-          const result = await cloudinary.uploader.destroy(thumbnail_public_id);
-          if (result.result !== 'ok') {
-            return next(new customError('Failed to delete the thumbnail resource', 500));
-           }
-        //delete video files in cloudinary
-          tutorial.forEach(async(video) => {
-              if (!video || !video._id || video.public_id) {
-                return next(new customError("Invalid tutorial data provided...", 400));
-              }
-              const videoResult=await cloudinary.uploader.destroy(video.public_id)
-              if (videoResult.result !== 'ok') {
-                  return next(new customError('Failed to delete the video resource', 500));
-              }
-              const deletedTutorial=await Tutorial.findByIdAndDelete(video._id);
-              if(!deletedTutorial){
-                return next(new customError("Delete action failed to complete on tutorial...", 400));
-              }
-            }
-          );
-          //now delete the full course
-          const deletedCourse=await Course.findByIdAndDelete(id);
-          if(!deletedCourse){
-            return next(new customError("Delete action failed to complete on course...", 400));
-          }
-          return res.status(204).json({ status: 'success', message: 'Course deleted successfully...' });
-      } catch (error) {
-         return next(new customError('Error deleting resource', 500));
-      }
-  });
+Router.route('/:id').delete(
+  protectRoutes,
+  protectInstructor,
+  async (req, res, next) => {
+    const { id } = req.params;
+    empty(id,"Can't find this course ID...",404,next);
+    const course=await Course.findOne({_id: id}).populate("instructor")
+                                                    .populate("tutorial")
+                                                    .populate("requests")
+                                                    .populate("acceptedrequests").exec();
+    const {thumbnail_public_id,tutorial,instructor}=course;
+    empty(thumbnail_public_id,"Server Error, Course thumbnail ID not found...", 505,next);
+    empty(tutorial,"Server Error, Course videos not found...", 505,next);
+    if(!(await checkCourseOwnership(instructor,req)))  return next(new customError("Due to ownership policy, this action is not permitted...",400));  
 
+    try {
+      //delete cover image in cloudinary
+        const result = await cloudinary.uploader.destroy(thumbnail_public_id,{ resource_type: 'image' , invalidate: true, type: 'authenticated'});
+        if (result.result === 'not found') {}
+        else if(result.result !== 'ok'){
+          return next(new customError('Failed to delete the thumbnail resource', 500));
+        }
+      //delete video files in cloudinary
+        tutorial.forEach(async(video) => {
+            if (!video || !video._id || video.public_id) {
+              return next(new customError("Invalid tutorial data provided...", 400));
+            }
+            const videoResult=await cloudinary.uploader.destroy(video.public_id,{ resource_type: 'video' , invalidate: true, type: 'authenticated'})
+            if (videoResult.result === 'not found') {}
+            else if(videoResult.result !== 'ok'){
+                return next(new customError('Failed to delete old video from Cloudinary, check your network connection', 500));
+            }
+            const deletedTutorial=await Tutorial.findByIdAndDelete(video._id);
+            if(!deletedTutorial){
+              return next(new customError("Delete action failed to complete on tutorial...", 400));
+            }
+          }
+        );
+        //now delete the full course
+        const deletedCourse=await Course.findByIdAndDelete(id);
+        if(!deletedCourse){
+          return next(new customError("Delete action failed to complete on course...", 400));
+        }
+        return res.status(204).json({ status: 'success', message: 'Course deleted successfully...' });
+    } catch (error) {
+        return next(new customError('Error deleting resource', 500));
+    }
+});
 Router.route('/content/:id').patch(upload.single('thumbnailUrl'), protectRoutes, protectInstructor, asyncErrorHandler(async (req, res, next) => {
   try {
       empty(req.user, "User not logged in, try logging in...", 404, next);
       const { id } = req.params;
       empty(id, "Course ID not provided...", 404, next);
 
-      let course = await Course.findById(id).select("thumbnail_public_id");
+      let course = await Course.findById(id).select("+thumbnail_public_id");
       empty(course, "Course not found or recently deleted...", 404, next);
 
       if (!(await checkCourseOwnership(course.instructor, req))) {
@@ -321,9 +311,10 @@ Router.route('/content/:id').patch(upload.single('thumbnailUrl'), protectRoutes,
       if (req.file) {
           // Delete old thumbnail from Cloudinary
           try {
-              const result1 = await cloudinary.uploader.destroy(thumbnail_public_id, { resource_type: 'image' });
-              if (result1.result !== 'ok') {
-                  return next(new customError('Failed to delete old thumbnail from Cloudinary', 500));
+              const result1 = await cloudinary.uploader.destroy(thumbnail_public_id, { resource_type: 'image', invalidate: true });
+              if (result1.result === 'not found') {}
+              else if(result1.result !== 'ok'){
+                  return next(new customError('Failed to delete old video from Cloudinary, check your network connection', 500));
               }
           } catch (err) {
               return next(new customError('Error deleting old thumbnail from Cloudinary', 500));
@@ -344,7 +335,14 @@ Router.route('/content/:id').patch(upload.single('thumbnailUrl'), protectRoutes,
       course.description = req.body.description || course.description;
       course.category = req.body.category || course.category;
       course.skill_level = req.body.skill_level || course.skill_level;
-      course.price = req.body.price || course.price;
+      course.type = req.body.type || course.type;
+      if(req.body.type==='free'){
+        course.currency = undefined;
+        course.amount = undefined;
+      }else{
+        course.currency = req.body.currency || course.currency;
+        course.amount = req.body.amount || course.amount;
+      }
       course.thumbnailUrl = thumbnailUrl;
       course.thumbnail_public_id = thumbnail_public_id;
 
@@ -359,8 +357,6 @@ Router.route('/content/:id').patch(upload.single('thumbnailUrl'), protectRoutes,
       return next(new customError('Error updating course', 500));
   }
 }));
-
-
 // Define the patch route for updating a tutorial video
 Router.route('/content/:courseId/video/:videoId').patch(upload.single('video'), protectRoutes, protectInstructor, asyncErrorHandler(async (req, res, next) => {
   try {
@@ -380,7 +376,7 @@ Router.route('/content/:courseId/video/:videoId').patch(upload.single('video'), 
       return next(new customError("This route cannot be used to update course cover image...", 400));
     }
 
-    let tutorial = await Tutorial.findById(videoId).select("+videoUrl").select("public_id");
+    let tutorial = await Tutorial.findById(videoId).select("+videoUrl +public_id");
     if (!(await checkIfTutorialExistInCourse(course, tutorial))) {
       return next(new customError("Due to ownership policy, this action is not permitted...", 400));
     }
@@ -390,9 +386,10 @@ Router.route('/content/:courseId/video/:videoId').patch(upload.single('video'), 
 
     if (req.file) {
       try {
-        const result1 = await cloudinary.uploader.destroy(public_id, { resource_type: 'video' });
-        if (result1.result !== 'ok') {
-          return next(new customError('Failed to delete old video from Cloudinary, check your network connection', 500));
+        const result1 = await cloudinary.uploader.destroy(public_id, { resource_type: 'video' , invalidate: true, type: 'authenticated'});
+        if (result1.result === 'not found') {}
+        else if(result1.result !== 'ok'){
+            return next(new customError('Failed to delete old video from Cloudinary, check your network connection', 500));
         }
       } catch (err) {
         return next(new customError('Error deleting old video from Cloudinary, check your network connection', 500));
@@ -401,9 +398,15 @@ Router.route('/content/:courseId/video/:videoId').patch(upload.single('video'), 
       try {
         const result = await cloudinary.uploader.upload(req.file.path, {
           resource_type: 'video',
+          type: 'authenticated',
           format: 'mp4'
         });
-        videoUrl = cloudinary.url(result.public_id, { resource_type: 'video' });
+        videoUrl = cloudinary.url(result.public_id, { 
+          resource_type: 'video' ,
+          type: 'authenticated',
+          sign_url: true,
+          expires_at: Math.floor(Date.now() / 1000) + 3600 // URL expires in 1 hour
+        });
         public_id = result.public_id;
       } catch (err) {
         //console.error('Error uploading new video to Cloudinary:', err);
@@ -446,8 +449,8 @@ async function checkIfCourseExistInUser(user, courseId) {
   return user?.enroll.some(enrolledCourseId => enrolledCourseId.equals(courseId));
 }
 
-async function checkIfUserExistInInstructorRequests(course, userId) {
+/* async function checkIfUserExistInInstructorRequests(course, userId) {
   return course?.requests.some(request => request.student._id.equals(userId));
-}
+} */
 
 module.exports = Router;

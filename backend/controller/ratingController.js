@@ -13,7 +13,8 @@ exports.addRating=asyncErrorHandler(async(req,res,next)=>{
     empty(getCourse,"Provide valid ID to the course you want to rate...",404,next);
     const student=req.user;
     //check if this student has rated this course before
-    const checkRating=await Rating.findOne({student: student._id});
+    const checkRating=await Rating.findOne({student: student._id,course: courseId});
+    console.log(checkRating)
     if(checkRating) return next(new customError("You have recently rated this course..."))
 
     const rating=await Rating.create({...req.body, student: student._id,course: getCourse._id});
@@ -28,11 +29,13 @@ exports.editRating=asyncErrorHandler(async(req,res,next)=>{
     const {ratingId}=req.params;
     //empty(courseId,"Provide valid ID to the course you want to rate...",404,next);
     empty(ratingId,"Invalid rating ID...",404,next);
-    const rating=await Rating.findById(ratingId).populate("student").exec();
+    let rating=await Rating.findById(ratingId).populate("student").exec();
     empty(rating,"Rating's not found...",404,next);
     //now check if the student was the one who created the rating
-    if(!checkOwnerOfRating(rating,req.user)) return next(new customError("This student does not have access to modify this rating...", 400))
-    const updatedRating=await Rating.findByIdAndUpdate(rating._id, {comment: req.body.comment, rate: req.body.star},{new: true, runValidators: true});
+    if(!checkOwnerOfRating(rating,req.user)) return next(new customError("This student does not have access to modify this rating...", 400));
+    rating.star=req.body.star;
+    rating.comment=req.body.comment;
+    const updatedRating = await rating.save();
     empty(updatedRating,"Server Error, Unable to update your rating's...",500,next);
     return res.status(200).json({
         status: "success",
@@ -75,7 +78,10 @@ exports.ratingPerCourse=asyncErrorHandler(async(req,res,next)=>{
         status: "success",
         data: {
             grouping,
-            ratings: await Rating.find({course: getCourse._id}).populate("student").populate("course").exec()
+            ratings: await Rating.find({course: getCourse._id}).populate({
+                path: "student", 
+                options:{skipMiddleware: true}
+            }).populate("course").exec()
         }
     })
 })
@@ -121,7 +127,10 @@ exports.ratingPerStudent=asyncErrorHandler(async(req,res,next)=>{
         status: "success",
         data: {
             grouping,
-            ratings: await Rating.find({student: student._id}).populate("student").populate("course").exec()
+            ratings: await Rating.find({student: student._id}).populate({
+                path:"student",
+                options:{skipMiddleware: true}
+            }).populate("course").exec()
         }
     })
 })

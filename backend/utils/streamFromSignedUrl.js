@@ -3,6 +3,7 @@ const utils=require("util");
 const User = require("../models/User");
 const { decrypt } = require("./signature");
 const axios = require('axios');
+axios.default.defaults.timeout = 300000; // 5 minutes
 
 exports.videoStreamSignaturedUrl=async function(req,res,next){
     try {

@@ -13,6 +13,7 @@ const prodError=(res,error)=>{
     }
 }
 const devError=(res,error)=>{
+    console.log(error)
     res.status(error.statusCode).json({
         status: error.status,
         message: error.message,
@@ -54,7 +55,12 @@ const ENOTFOUNDERROR=(err)=>{
 const FileLimitSizeError=(err)=>{
     return new customError('File size is too large. Maximum allowed size is 2GB', 400);
 }
-
+const GooGLEAPIERROR2=(err)=>{
+    return new customError('Failed to obtain access token from your google account, try again later...', 500);
+}
+const ERR_ASSERTION=(err)=>{
+    return new customError('Failed to process request...', 500);
+}
 const globalErrorController=(error,req,res,next)=>{
     error.statusCode=error.statusCode || 500;
     error.status=error.status || 'error';
@@ -87,6 +93,12 @@ const globalErrorController=(error,req,res,next)=>{
         }
         if (error.code === 'invalid_grant') {
             error=googleApiError(error)
+        }
+        if (error.InternalOAuthError==="InternalOAuthError") {
+            error=GooGLEAPIERROR2(error)
+        }
+        if(error.code==='ERR_ASSERTION'){
+            error=ERR_ASSERTION(error);
         }
         prodError(res,error);
     }

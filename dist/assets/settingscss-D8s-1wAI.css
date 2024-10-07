@@ -1,0 +1,1 @@
+#main{height:350px;background-position:center;background-repeat:no-repeat;background-size:cover;object-fit:cover;width:100%;z-index:1}.active-bar{position:relative}.active-bar:before{position:absolute;content:"";width:60px;height:6px;background:#00f;border-radius:5px;top:46px;right:0;animation:fadeInAndMoveSlide3 1s ease-in-out forwards}

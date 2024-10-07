@@ -17,7 +17,8 @@ exports.deleteCourseToDepth=async(deleteId,next)=>{
         try {
           //delete cover image in cloudinary
             const result = await cloudinary.uploader.destroy(thumbnail_public_id);
-            if (result.result !== 'ok') {
+            if (result.result === 'not found') {}
+            else if(result.result !== 'ok'){
               return next(new customError('Failed to delete this resource', 500));
             }
           //delete video files in cloudinary
@@ -26,8 +27,9 @@ exports.deleteCourseToDepth=async(deleteId,next)=>{
                     return next(new customError("Invalid tutorial data provided...", 400));
                 }
                 const videoResult=await cloudinary.uploader.destroy(video.public_id)
-                if (videoResult.result !== 'ok') {
-                    return next(new customError('Failed to delete the video resource', 500));
+                if (videoResult.result === 'not found') {}
+                else if(videoResult.result !== 'ok'){
+                  return next(new customError('Failed to delete the video resource', 500));
                 }
                 const deletedTutorial=await Tutorial.findByIdAndDelete(video._id);
                 if(!deletedTutorial){

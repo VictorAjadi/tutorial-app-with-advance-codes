@@ -1,30 +1,40 @@
 const passport = require('passport');
+const User = require('../models/User');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const User=require('../models/User')
 //sign up and login strategy
 passport.use(
-  new GoogleStrategy({
-    clientID: process.env.CLIENT_ID,
-    clientSecret: process.env.CLIENT_SECRET,
-    callbackURL: '/auth/google/callback'
-  },
-  async (token, tokenSecret, profile, done) => {
-    console.log(profile)
-    try {
-      let user = await User.findOne({ email: profile.emails[0].value, name: profile.displayName},{runValidator: false});
-      if (!user) {
-        user = new User({
-          username: profile.displayName,
-          email: profile.emails[0].value
-        });
-        await user.save();
+  new GoogleStrategy(
+    {
+      clientID: process.env.CLIENT_ID,
+      clientSecret: process.env.CLIENT_SECRET,
+      callbackURL: '/auth/google/callback',
+      scope: ['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'],
+      prompt: 'consent',  // Add this line to force consent screen
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      const email = profile.emails[0].value; // This will give you the user's email address
+      let user = await User.findOne({ email: email.toString() }).setOptions({skipMiddleware: true})
+      try {
+        if (!user) {
+          user =  new User({
+            name: profile.displayName,
+            email: email,
+            oauthProvider: 'google', // Set the OAuth provider
+          });
+          await user.save({validateBeforeSave: false });
+        }
+        //localStorage.setItem('isLoggedIn', 'true');
+        if(user.active===false || user.suspended===true){
+          return done({error:'This user has either been suspended or inactive, try reactivating account.'})
+        }
+        return done(null, user);
+      } catch (err) {
+        return done(err);
       }
-      return done(null, user);
-    } catch (err) {
-      return done(err);
     }
-  })
+  )
 );
+
 passport.serializeUser((user, done) => {
   done(null, user.id);
 });
