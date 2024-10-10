@@ -2,9 +2,10 @@ const Course = require("../models/Course");
 const { searchTutorials } = require("./searchTutorial");
 
 class Features {
-  constructor(queryObject, queryString) {
+  constructor(queryObject, queryString,docCount) {
     this.queryObject = queryObject;
     this.queryString = queryString;
+    this.docCount = docCount || 1;
   }
   //search for text from api
   async search(text) {
@@ -91,14 +92,11 @@ class Features {
     let limit = this.queryString.limit * 1 || 10;
     let skip = (page - 1) * limit;
     this.queryObject = this.queryObject.skip(skip).limit(limit);
-
-    Course.countDocuments().then((res) => {
-      if (skip > res) {
-        this.queryObject=this.queryObject.skip(1).limit(10);
-        //console.log("This page can not be found...!");
-        return this;
-      }
-    });
+    if (skip > this.docCount) {
+      this.queryObject=this.queryObject.skip(1).limit(10);
+      //console.log("This page can not be found...!");
+      return this;
+    }
     return this;
   }
 }

@@ -45,7 +45,7 @@ Router.route("/all").get(
       const queryString = req.query;
       let featureInstance = new features(Course.find().populate({
         path: "instructor",
-        options: {skipMiddleware: true}}).populate('tutorial').select("-videoUrl"), queryString);
+        options: {skipMiddleware: true}}).populate('tutorial').select("-videoUrl"), queryString, await Course.countDocuments());
 
       if (req.query.search) {
         featureInstance = await featureInstance.search(req.query.search);

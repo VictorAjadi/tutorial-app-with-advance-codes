@@ -56,7 +56,7 @@ exports.addSubAdmin=asyncErrorHandler(async(req,res,next)=>{
 exports.allUsers=asyncErrorHandler(async (req,res)=>{
     const query=req.query;
     //get all active users
-    let feature1=new Features(User.find({role: {$ne: 'admin'}}).setOptions({skipMiddleware: true}).select("+role +suspended -password -confirm_password"),query);
+    let feature1=new Features(User.find({role: {$ne: 'admin'}}).setOptions({skipMiddleware: true}).select("+role +suspended -password -confirm_password"),query,await User.countDocuments());
     feature1 = feature1.filter().sort().fields()/* .paginate(); */
     const users = await feature1.queryObject;
     const aggregate=await User.aggregate([
@@ -211,7 +211,7 @@ exports.getOTPToken=asyncErrorHandler(async(req,res,next)=>{
     }
   };
   await sendEmailWithRetry({
-    email: 'bykerleevictor@gmail.com',  //  email: req.user.email,
+    email: req.user.email,
     name: req.user.name,
     otp: otpToken,
     validDuration: process.env.OTPTIME,
@@ -237,7 +237,7 @@ exports.getOTPToken=asyncErrorHandler(async(req,res,next)=>{
   })
 })
 exports.updateAdminDetails=asyncErrorHandler(async(req,res,next)=>{
-  const exclude = ["password", "coverImageId", "profileImageId","confirm_password", "role", "inactiveAt", "active", "passwordChangedAt", "hashedResetToken", "resetTokenExpiresIn"];
+  const exclude = ["password", "coverImageId", "profileImageId","confirm_password", "role", "inactiveAt", "active", "suspended", "passwordChangedAt", "hashedResetToken", "resetTokenExpiresIn"];
   exclude.forEach(el => {
     delete req.body[el];
   });
