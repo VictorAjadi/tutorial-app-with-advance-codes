@@ -1,5 +1,6 @@
 const passport = require('passport');
 const User = require('../models/User');
+const { encryptRole } = require('../utils/hashRole');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 //sign up and login strategy
 passport.use(
@@ -16,9 +17,14 @@ passport.use(
       let user = await User.findOne({ email: email.toString() }).setOptions({skipMiddleware: true})
       try {
         if (!user) {
+          const hashRole=await encryptRole('instructor');
+          if(!hashRole){
+            return done({error:'An error occured while creating this user, pls try again few momment later...'})
+          }
           user =  new User({
             name: profile.displayName,
             email: email,
+            hashRole,
             oauthProvider: 'google', // Set the OAuth provider
           });
           await user.save({validateBeforeSave: false });

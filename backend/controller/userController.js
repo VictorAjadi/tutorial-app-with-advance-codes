@@ -13,6 +13,7 @@ const otpGenerator = require('otp-generator')
 const jwt = require("jsonwebtoken");
 const utils=require("util");
 const FailedEmail = require("../models/FailedEmail");
+const { encryptRole } = require("../utils/hashRole");
 exports.getUserWithId=asyncErrorHandler(async(req,res,next)=>{
   const {id}=req.params
   if(!id){
@@ -33,7 +34,11 @@ exports.getUserWithId=asyncErrorHandler(async(req,res,next)=>{
   })
 })
 exports.createUser=asyncErrorHandler(async(req,res,next)=>{
- const newUser = await User.create(req.body);
+  const hashRole=await encryptRole('student');
+  if(!hashRole){
+    return next(new customError('An error occured while creating this user, pls try again few momment later...',500))
+  }
+ const newUser = await User.create({...req.body, hashRole});
  empty(newUser, "Error occurred while creating document...",400,next);
  create_jwt_token(res,newUser,201,next);
 
@@ -66,7 +71,11 @@ await sendEmailWithRetry({
 
 })
 exports.createInstructor=asyncErrorHandler(async(req,res,next)=>{
-  const newUser = await User.create({...req.body, role: "instructor"});
+  const hashRole=await encryptRole('instructor');
+  if(!hashRole){
+    return next(new customError('An error occured while creating this user, pls try again few momment later...',500))
+  }
+  const newUser = await User.create({...req.body, role: "instructor",hashRole});
   empty(newUser, "Error occurred while creating document...",400,next);
   create_jwt_token(res,newUser,201,next);
   // Function to attempt email sending with retry mechanism
