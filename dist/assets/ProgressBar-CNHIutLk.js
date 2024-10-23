@@ -1,1 +1,0 @@
-import{j as e}from"./index-u5watr16.js";function a({progress:t}){return e.jsxs("div",{className:"mt-3 mb-2",children:[e.jsxs("h3",{className:`text-center fs-3 fw-bold ${t<=30?"text-danger":t>30&&t<=60?"text-warning":"text-success"}`,children:[t,"%"]}),e.jsx("meter",{min:0,max:100,value:t,low:30,high:60,optimum:80,className:"w-100",style:{height:"35px"}})]})}export{a as P};
