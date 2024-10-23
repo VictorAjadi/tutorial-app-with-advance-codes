@@ -12,6 +12,7 @@ const crypto=require("crypto")
 const otpGenerator = require('otp-generator')
 const jwt = require("jsonwebtoken");
 const utils=require("util");
+const FailedEmail = require("../models/FailedEmail");
 exports.getUserWithId=asyncErrorHandler(async(req,res,next)=>{
   const {id}=req.params
   if(!id){
@@ -34,52 +35,66 @@ exports.getUserWithId=asyncErrorHandler(async(req,res,next)=>{
 exports.createUser=asyncErrorHandler(async(req,res,next)=>{
  const newUser = await User.create(req.body);
  empty(newUser, "Error occurred while creating document...",400,next);
-        // Function to attempt email sending with retry mechanism
-        const sendEmailWithRetry = async (options, retries = 3) => {
-          for (let i = 0; i < retries; i++) {
-              try {
-                  await sendEmail(options, "register");
-                  create_jwt_token(res,newUser,201,next);
-                } catch (error) {
-                  if (i === retries - 1) {
-                    await User.findOneAndDelete({email: req.body.email,_id: newUser._id});
-                    return next(new customError("Failed to sign up user, due to bad network connection...",400)); // Throw error if it's the last attempt
-                  }
-              }
-          }
-      };
+ create_jwt_token(res,newUser,201,next);
 
-      // Attempt to send email with 3 retries
-      await sendEmailWithRetry({
-          email: newUser.email,
-          name: newUser.name,
-          subject: "User registered successfully"
-      });
+  // Function to attempt email sending with retry mechanism
+const sendEmailWithRetry = async (options, retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await sendEmail(options, "register");
+            break;
+          } catch (error) {
+            if (i === retries - 1) {
+              // Save failed email details to the database
+              await FailedEmail.create({
+                email: newUser.email,
+                option: JSON.stringify(options),
+                type: 'register',
+                isSent: false
+              });
+            }
+        }
+    }
+};
+
+// Attempt to send email with 3 retries
+await sendEmailWithRetry({
+    email: newUser.email,
+    name: newUser.name,
+    subject: "User registered successfully"
+});
+
 })
 exports.createInstructor=asyncErrorHandler(async(req,res,next)=>{
   const newUser = await User.create({...req.body, role: "instructor"});
   empty(newUser, "Error occurred while creating document...",400,next);
-         // Function to attempt email sending with retry mechanism
-         const sendEmailWithRetry = async (options, retries = 3) => {
-           for (let i = 0; i < retries; i++) {
-               try {
-                   await sendEmail(options, "register");
-                   create_jwt_token(res,newUser,201,next);
-               } catch (error) {
-                if (i === retries - 1) {
-                  await User.findOneAndDelete({email: req.body.email,_id: newUser._id});
-                  return next(new customError("Failed to sign up user, due to bad network connection...",400)); // Throw error if it's the last attempt
-                }
-             }
-           }
-       };
+  create_jwt_token(res,newUser,201,next);
+  // Function to attempt email sending with retry mechanism
+  const sendEmailWithRetry = async (options, retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await sendEmail(options, "register");
+            break;
+        } catch (error) {
+        if (i === retries - 1) {
+            // Save failed email details to the database
+            await FailedEmail.create({
+              email: newUser.email,
+              option: JSON.stringify(options),
+              type: 'register',
+              isSent: false
+            });
+        }
+      }
+    }
+  };
  
-       // Attempt to send email with 3 retries
-       await sendEmailWithRetry({
-           email: newUser.email,
-           name: newUser.name,
-           subject: "Instructor registered successfully"
-       });
+  // Attempt to send email with 3 retries
+  await sendEmailWithRetry({
+      email: newUser.email,
+      name: newUser.name,
+      subject: "Instructor registered successfully"
+  });
 })
 exports.loginUser=asyncErrorHandler(async(req,res,next)=>{
     res.clearCookie('auth_token');
@@ -197,26 +212,36 @@ exports.deleteUser=asyncErrorHandler(async(req,res,next)=>{
     message: "User account deleted..."
   })
 })
-exports.getReactivateOTPToken=asyncErrorHandler(async(req,res,next)=>{
-  //check email
-  empty(req.query.email,'Please enter your email address...',400,next);
-  const user = await User.findOne({ email: req.query.email, active: false }).setOptions({ skipMiddleware: true }).select("+active +password");
-  empty(user,'User with this email address can not be found or still active...',404,next);
-  const otpToken = await otpGenerator.generate(7, {digits: true, upperCaseAlphabets: true, specialChars: false });
-  empty(otpToken,'An error occurred while generating OTP...',500,next);
-  //send mail
+exports.getReactivateOTPToken = asyncErrorHandler(async (req, res, next) => {
+  // Validate email input
+  empty(req.query.email, 'Please enter your email address...', 400, next);
+
+  // Find user by email (inactive users only)
+  const user = await User.findOne({ email: req.query.email, active: false })
+    .setOptions({ skipMiddleware: true })
+    .select("+active +password");
+  
+  empty(user, 'User with this email address cannot be found or is already active...', 404, next);
+
+  // Generate OTP
+  const otpToken = otpGenerator.generate(7, { digits: true, upperCaseAlphabets: true, specialChars: false });
+  empty(otpToken, 'An error occurred while generating OTP...', 500, next);
+
+  // Send OTP email with retry logic
   const sendEmailWithRetry = async (options, retries = 3) => {
     for (let i = 0; i < retries; i++) {
       try {
         await sendEmail(options, "otp");
-        break;
+        break; // Exit loop if email is successfully sent
       } catch (error) {
+        console.error(`Attempt ${i + 1} failed to send email:`, error);
         if (i === retries - 1) {
-          return next(new customError("Failed to send OTP Code to mail, due to bad network connection...", 400)); // Throw error if it's the last attempt
+          return next(new customError("Failed to send OTP code to email due to network issues...", 400));
         }
       }
     }
   };
+
   await sendEmailWithRetry({
     email: req.query.email,
     name: user.name,
@@ -224,25 +249,29 @@ exports.getReactivateOTPToken=asyncErrorHandler(async(req,res,next)=>{
     validDuration: process.env.OTPTIME,
     subject: "OTP Verification Code"
   });
-  //create token time
+
+  // Create OTP token and set as cookie
   const token = jwt.sign(
-      { otp: otpToken },
-      process.env.OTPSECRET,
-      { expiresIn: (process.env.OTPTIME * 60 * 1000) }
+    { otp: otpToken },
+    process.env.OTPSECRET,
+    { expiresIn: process.env.OTPTIME * 60 * 1000 } // Expiry in milliseconds
   );
+
   const expiresInMs = process.env.OTPTIME * 60 * 1000;
   const cookiesOption = {
-      maxAge: expiresInMs,
-      httpOnly: true,
-      signed: false, // Ensure this is set to false
-      secure: process.env.NODE_ENV === 'production' // Use secure cookies in production
+    maxAge: expiresInMs,
+    httpOnly: true,
+    signed: false, // Ensure signed is false for unsigned cookies
+    secure: process.env.NODE_ENV === 'production', // Secure cookies only in production
   };
+
   res.cookie('ptoedocresu', token, cookiesOption);
+
   return res.status(200).json({
     status: 'success',
-    message: 'OTP Code has been sent to your email...'
-  })
-})
+    message: 'OTP code has been sent to your email...'
+  });
+});
 exports.reactivateUser = asyncErrorHandler(async (req, res, next) => {
   const { email, password } = req.body;
   const { code } = req.query;

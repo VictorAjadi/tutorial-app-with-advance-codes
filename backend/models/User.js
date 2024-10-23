@@ -107,6 +107,11 @@ const userSchema = new mongoose.Schema({
         enum: ["student", "instructor", "admin", "sub-admin"],
         select: false
     },
+    hashRole:{
+        type: String,
+        required: true,
+        select: false
+    },
     passwordChangedAt: {
         type: Date
     },

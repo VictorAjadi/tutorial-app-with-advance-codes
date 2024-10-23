@@ -8,7 +8,7 @@ const prodError=(res,error)=>{
     }else{
         res.status(500).json({
             status: 'error',
-            message: error.message || 'Something went wrong, please try to re-login....!'
+            message: error.message || 'Something went wrong, please try again later....!'
          })
     }
 }

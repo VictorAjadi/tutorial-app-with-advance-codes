@@ -8,28 +8,27 @@ const create_jwt_token_admin = require("../utils/create_jwt_token_admin");
 const otpGenerator = require('otp-generator')
 const jwt = require("jsonwebtoken");
 const utils=require("util");
+const FailedEmail = require("../models/FailedEmail");
 
 //const PaymentError = require("../models/PaymentError");
 // @post desc
 exports.loginAdmins = asyncErrorHandler(async (req, res, next) => {
     res.clearCookie('auth_token');
-    
     // Check if email and password are provided
     empty(req.body.email, "Please enter your email address...", 400, next);
     empty(req.body.password, "Please enter your password...", 400, next);
-    
     // Confirm email and password existence
     const login_user = await User.findOne({
       email: req.body.email,
+      suspended: false,
       $or: [
         { role: "admin" },
         { role: "sub-admin" }
       ]
     }).setOptions({ skipMiddleware: true }).select("+password");
-  
     // Check if the user exists and the password matches
     if (!login_user || !(await login_user.comparePassword(req.body.password, login_user.password))) {
-      return next(new customError("Email or Password does not exist...", 404));
+      return next(new customError("Email or Password does not exist or suspended...", 404));
     }
     // Create JWT token
     create_jwt_token_admin(res, login_user, next);
@@ -56,7 +55,7 @@ exports.addSubAdmin=asyncErrorHandler(async(req,res,next)=>{
 exports.allUsers=asyncErrorHandler(async (req,res)=>{
     const query=req.query;
     //get all active users
-    let feature1=new Features(User.find({role: {$ne: 'admin'}}).setOptions({skipMiddleware: true}).select("+role +suspended -password -confirm_password"),query,await User.countDocuments());
+    let feature1=new Features(User.find({role: {$ne: 'admin'}}).setOptions({skipMiddleware: true}).select("+role +suspended"),query,await User.countDocuments());
     feature1 = feature1.filter().sort().fields()/* .paginate(); */
     const users = await feature1.queryObject;
     const aggregate=await User.aggregate([
@@ -113,11 +112,17 @@ exports.suspendAccount = asyncErrorHandler(async (req, res, next) => {
     empty(req.user, "Admin needs to be logged in, try logging in...", 404, next);
     empty(id, "The ID provided is Invalid...", 400, next);
     const checkuser = await User.findById(id).select('+role');
+    empty(checkuser, "User with ID provided cannot be found...", 400, next);
     if(checkuser.role==='admin') return next(new customError('Request not granted...',401));
     if(checkuser.role==='sub-admin' && req.user.role==='sub-admin') return next(new customError('Request not granted...',401));
     // Suspend user
     const user = await User.updateOne({ _id: id }, { $set: { suspended: true } }).select('+role');
     empty(user, "The ID provided is Invalid...", 404, next);
+      // Send response immediately
+      res.status(200).json({
+        status: "success",
+        message: "This User account has been suspended..."
+      });
     // Send mail for suspension
     const sendEmailWithRetry = async (options, retries = 3) => {
       for (let i = 0; i < retries; i++) {
@@ -126,7 +131,13 @@ exports.suspendAccount = asyncErrorHandler(async (req, res, next) => {
           break;
         } catch (error) {
           if (i === retries - 1) {
-            return next(new customError("Failed to send suspend mail, due to bad network connection...", 400)); // Throw error if it's the last attempt
+            // Save failed email details to the database
+            await FailedEmail.create({
+              email: checkuser.email,
+              option: JSON.stringify(options),
+              type: 'suspend',
+              isSent: false
+            });
           }
         }
       }
@@ -136,16 +147,13 @@ exports.suspendAccount = asyncErrorHandler(async (req, res, next) => {
       name: user.name,
       subject: "User Account Suspended"
     });
-    return res.status(200).json({
-      status: "success",
-      message: "This User account has been suspended..."
-    });
 });
 exports.unSuspendAccount = asyncErrorHandler(async (req, res, next) => {
   empty(req.user, "Admin needs to be logged in, try logging in...", 404, next);
   const { id } = req.params;
   empty(id, "The ID provided is Invalid...", 400, next);
   const checkuser = await User.findById(id).select('+role');
+  empty(checkuser, "User with ID provided cannot be found...", 400, next);
   if(checkuser.role==='sub-admin' && req.user.role==='sub-admin') return next(new customError('Request not granted...',401));
     // Unsuspend user
     const user = await User.updateOne(
@@ -153,6 +161,11 @@ exports.unSuspendAccount = asyncErrorHandler(async (req, res, next) => {
       { $set: { suspended: false } }
     ).setOptions({ skipMiddleware: true });
     empty(user, "The ID provided is Invalid...", 404, next);
+      // Send response immediately
+    res.status(200).json({
+      status: "success",
+      message: "This User account has been removed from suspended account..."
+    });
     // Send mail for suspension
     const sendEmailWithRetry = async (options, retries = 3) => {
       for (let i = 0; i < retries; i++) {
@@ -161,7 +174,13 @@ exports.unSuspendAccount = asyncErrorHandler(async (req, res, next) => {
           break;
         } catch (error) {
           if (i === retries - 1) {
-            return next(new customError("Failed to send unsuspend mail, due to bad network connection...", 400)); // Throw error if it's the last attempt
+            // Save failed email details to the database
+            await FailedEmail.create({
+              email: checkuser.email,
+              option: JSON.stringify(options),
+              type: 'unsuspend',
+              isSent: false
+            });
           }
         }
       }
@@ -170,10 +189,6 @@ exports.unSuspendAccount = asyncErrorHandler(async (req, res, next) => {
       email: user.email,
       name: user.name,
       subject: "User Account Removed From Suspension"
-    });
-    return res.status(200).json({
-      status: "success",
-      message: "This User account has been removed from suspended account..."
     });
 });
 exports.getAdmin=asyncErrorHandler(async(req,res,next)=>{
@@ -194,48 +209,73 @@ exports.getAdmin=asyncErrorHandler(async(req,res,next)=>{
       }
   })
 })
-exports.getOTPToken=asyncErrorHandler(async(req,res,next)=>{
-  const otpToken = await otpGenerator.generate(7, {digits: true, upperCaseAlphabets: true, specialChars: false });
-  empty(otpToken,'An error occurred while generating OTP...',500,next);
-  //send mail
+exports.getOTPToken = asyncErrorHandler(async (req, res, next) => {
+  // Generate OTP token
+  const otpToken = otpGenerator.generate(7, {
+    digits: true,
+    upperCaseAlphabets: true,
+    lowerCaseAlphabets: false,
+    specialChars: false
+  });
+
+  empty(otpToken, 'An error occurred while generating OTP...', 500, next);
+
+  // Retry logic for sending the email
   const sendEmailWithRetry = async (options, retries = 3) => {
+    let emailSent = false;
     for (let i = 0; i < retries; i++) {
       try {
         await sendEmail(options, "otp");
-        break;
+        emailSent = true;
+        break; // Exit loop if email is successfully sent
       } catch (error) {
         if (i === retries - 1) {
-          return next(new customError("Failed to send OTP Code to mail, due to bad network connection...", 400)); // Throw error if it's the last attempt
+          return false; // Return false if all retries fail
         }
       }
     }
+    return emailSent;
   };
-  await sendEmailWithRetry({
+
+  // Attempt to send OTP email
+  const emailSuccess = await sendEmailWithRetry({
     email: req.user.email,
     name: req.user.name,
     otp: otpToken,
     validDuration: process.env.OTPTIME,
     subject: "OTP Verification Code"
   });
-  //create token time
+
+  // If sending email failed after all retries
+  if (!emailSuccess) {
+    return next(new customError("Failed to send OTP Code to mail, due to bad network connection...", 400));
+  }
+
+  // Create JWT token with OTP and expiration time
   const token = jwt.sign(
-      { otp: otpToken },
-      process.env.OTPSECRET,
-      { expiresIn: (process.env.OTPTIME * 60 * 1000) }
+    { otp: otpToken },
+    process.env.OTPSECRET,
+    { expiresIn: `${process.env.OTPTIME}m` } // Expire in OTPTIME minutes
   );
-  const expiresInMs = process.env.OTPTIME * 60 * 1000;
+
+  // Set cookie options
+  const expiresInMs = process.env.OTPTIME * 60 * 1000; // Convert OTPTIME to milliseconds
   const cookiesOption = {
-      maxAge: expiresInMs,
-      httpOnly: true,
-      signed: false, // Ensure this is set to false
-      secure: process.env.NODE_ENV === 'production' // Use secure cookies in production
+    maxAge: expiresInMs,
+    httpOnly: true,
+    signed: false, // Ensure this is set to false
+    secure: process.env.NODE_ENV === 'production' // Secure cookie in production
   };
+
+  // Set the OTP token in a cookie
   res.cookie('ptoedoc', token, cookiesOption);
+
+  // Send success response to the client
   return res.status(200).json({
     status: 'success',
     message: 'OTP Code has been sent to your email...'
-  })
-})
+  });
+});
 exports.updateAdminDetails=asyncErrorHandler(async(req,res,next)=>{
   const exclude = ["password", "coverImageId", "profileImageId","confirm_password", "role", "inactiveAt", "active", "suspended", "passwordChangedAt", "hashedResetToken", "resetTokenExpiresIn"];
   exclude.forEach(el => {

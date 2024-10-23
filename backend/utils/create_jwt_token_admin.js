@@ -32,7 +32,6 @@ module.exports = async (res, model, next) => {
             message: "login was successful..."
         });
     } catch (error) {
-        console.log(error)
        return res.status(500).json({
             status: "fail",
             message: "Internal Server Error"

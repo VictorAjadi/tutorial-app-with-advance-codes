@@ -24,6 +24,10 @@ const { schedulePaymentJob } = require('./utils/autoPayment');
 const flash=require('connect-flash')
 //const User = require('./models/User');
 const { default: mongoose } = require('mongoose');
+const logger = require('./utils/node_logger');
+const scheduleFailedMails = require('./utils/runFailedEmails');
+const User = require('./models/User');
+const { encryptRole } = require('./utils/hashRole');
 
 //passport config
 const app = express();
@@ -88,7 +92,15 @@ app.use(compression());
          name: 'Admin Victor',
          password: 'samsungs25ultra@',
          email: 'devonadmin@gmail.com'
-    }) */
+    }) 
+         const user =  await User.find({}).setOptions({ skipMiddleware: true }).select("+role"); 
+user.forEach(async(each)=>{
+console.log(each.role)
+const hashRole=await encryptRole(each.role);
+console.log(hashRole)
+await User.updateOne({_id: each._id},{$set: {hashRole: hashRole}}).setOptions({ skipMiddleware: true }).select("+hashRole"); 
+})     
+    */
     next();
 }) 
 
@@ -137,10 +149,12 @@ if (process.env.NODE_ENV === "development") {
 mongoose.connection.on('connected', () => {
     console.log('MongoDB is ready, starting payment job.');
     schedulePaymentJob(); // Start the cron job once MongoDB is connected
-  });
+    console.log('MongoDB is ready, starting failed  mail job.');
+    scheduleFailedMails(); // Start the cron job once MongoDB is connected
+});
   
 mongoose.connection.on('error', (err) => {
-console.error('MongoDB connection error:', err);
+logger.error('MongoDB connection error:', err);
 });
 //**** route middle-wares *****
 app.use("/auth", require("./routes/passportRoute")); // passport router middleware

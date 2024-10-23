@@ -87,7 +87,7 @@ const sendEmail = async (option, type) => {
             }
         };
         email = mailGenerator.generate(emailFromContact);
-    }else if (type === "unSuspend") {
+    }else if (type === "unsuspend") {
         const emailFromContact = {
             body: {
                 name: `${option.name}`,
