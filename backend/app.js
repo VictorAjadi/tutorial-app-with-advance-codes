@@ -34,8 +34,6 @@ const app = express();
 
 // Middleware to parse cookies
 app.use(cookieParser()); 
-
-  
 // Enable express middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // Parse URL-encoded bodies (form submissions)
@@ -58,13 +56,11 @@ app.use((req,res,next)=>{
 app.use(passport.initialize());
 app.use(passport.session()); 
 require("./config/passport");
-
 // Security measures and security policies mimicking https secure headers
 // Adjust your Content Security Policy settings
 app.use(helmet(secureHelmet));
 app.use(hpp());
 app.use(mongoSanitizer()); // Sanitize request body
-
 const sanitizeInput = (req, res, next) => {
     req.params = sanitizeObject(req.params);
     req.query = sanitizeObject(req.query);
@@ -81,9 +77,17 @@ const sanitizeObject = (obj) => {
     }
     return sanitizedObj;
 };
-
 app.use(sanitizeInput); // Apply the middleware to all routes
-app.use(compression());
+app.use(compression({
+    level: 6,
+    threshold: 0,
+    filter:(req,res)=>{
+        if(!req.headers['x-no-compression']){
+            return compression.filter(req,res);
+        }
+        return false; // Don't apply compression if 'x-no-compression' header is present
+    }
+}));
 //************update all schema******************** */
  app.use(async(req,res,next)=>{
 /*     await Payment.updateMany({},{$set: {paidInstructorDate: undefined,paidInstructor: false}});

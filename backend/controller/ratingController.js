@@ -14,9 +14,7 @@ exports.addRating=asyncErrorHandler(async(req,res,next)=>{
     const student=req.user;
     //check if this student has rated this course before
     const checkRating=await Rating.findOne({student: student._id,course: courseId});
-    console.log(checkRating)
     if(checkRating) return next(new customError("You have recently rated this course..."))
-
     const rating=await Rating.create({...req.body, student: student._id,course: getCourse._id});
     empty(rating,"Server Error, Unable to send rating...",500,next);
     return res.status(200).json({

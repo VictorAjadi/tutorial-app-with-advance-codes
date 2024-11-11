@@ -9,7 +9,7 @@ const otpGenerator = require('otp-generator')
 const jwt = require("jsonwebtoken");
 const utils=require("util");
 const FailedEmail = require("../models/FailedEmail");
-
+const crypto = require('crypto')
 //const PaymentError = require("../models/PaymentError");
 // @post desc
 exports.loginAdmins = asyncErrorHandler(async (req, res, next) => {
@@ -251,9 +251,18 @@ exports.getOTPToken = asyncErrorHandler(async (req, res, next) => {
     return next(new customError("Failed to send OTP Code to mail, due to bad network connection...", 400));
   }
 
+  //encrypt otp token
+  const algorithm = 'aes-256-cbc';
+  const key = Buffer.from(process.env.OTPSECRET, 'hex'); // Ensure this is a 32-byte hex-encoded string
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(otpToken, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const encryptedOTP =  iv.toString('hex') + ':' + encrypted;
+
   // Create JWT token with OTP and expiration time
   const token = jwt.sign(
-    { otp: otpToken },
+    { otp: encryptedOTP },
     process.env.OTPSECRET,
     { expiresIn: `${process.env.OTPTIME}m` } // Expire in OTPTIME minutes
   );
@@ -298,8 +307,6 @@ exports.updateAdminDetails=asyncErrorHandler(async(req,res,next)=>{
   //req.user.paypal_id= req.body.paypal_id || req.user.paypal_id;
   const user = await req.user.save();
   if (!user) {
-    console.log(user)
-    console.log(req.user)
     return next(new customError("Invalid user ID, login and try again...", 404));
   }
   return res.status(200).json({
@@ -359,18 +366,23 @@ const verifyOTP = async (token, req) => {
   try {
     // Convert input token to string
     let newToken = token.toString();
-
     // Get the OTP JWT token from the cookies
     const ptoedoc = req.cookies.ptoedoc;
     if (!ptoedoc) {
       throw new Error('OTP token is missing or has expired');
     }
-
     // Verify the JWT OTP token using the secret
     const otp_token = await utils.promisify(jwt.verify)(ptoedoc, process.env.OTPSECRET);
-
+    const algorithm = 'aes-256-cbc';
+    const key = Buffer.from(process.env.OTPSECRET, 'hex'); // Ensure this is a 32-byte hex-encoded string
+    const parts = otp_token.otp.split(':');
+    const iv = Buffer.from(parts.shift(), 'hex');
+    const encrypted = Buffer.from(parts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
     // Compare the OTP from the query and the stored token
-    return newToken === otp_token.otp.toString(); 
+    return newToken === decrypted.toString(); 
   } catch (error) {
     // Handle JWT errors (expired token, invalid signature, etc.)
     return false;

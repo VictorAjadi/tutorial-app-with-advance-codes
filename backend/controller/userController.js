@@ -236,22 +236,24 @@ exports.getReactivateOTPToken = asyncErrorHandler(async (req, res, next) => {
   const otpToken = otpGenerator.generate(7, { digits: true, upperCaseAlphabets: true, specialChars: false });
   empty(otpToken, 'An error occurred while generating OTP...', 500, next);
 
-  // Send OTP email with retry logic
+  // Retry logic for sending email
   const sendEmailWithRetry = async (options, retries = 3) => {
+    let emailSent = false;
     for (let i = 0; i < retries; i++) {
       try {
         await sendEmail(options, "otp");
-        break; // Exit loop if email is successfully sent
+        emailSent = true;
+        break; // Exit the loop if the email is successfully sent
       } catch (error) {
-        console.error(`Attempt ${i + 1} failed to send email:`, error);
         if (i === retries - 1) {
-          return next(new customError("Failed to send OTP code to email due to network issues...", 400));
+          return false; // Return false if all retries fail
         }
       }
     }
+    return emailSent;
   };
-
-  await sendEmailWithRetry({
+  // Attempt to send OTP email
+  const emailSuccess = await sendEmailWithRetry({
     email: req.query.email,
     name: user.name,
     otp: otpToken,
@@ -259,9 +261,22 @@ exports.getReactivateOTPToken = asyncErrorHandler(async (req, res, next) => {
     subject: "OTP Verification Code"
   });
 
-  // Create OTP token and set as cookie
+  // If sending email failed after all retries
+  if (!emailSuccess) {
+    return next(new customError("Failed to send OTP Code to mail, due to bad network connection...", 400));
+  }
+  //encrypt otp token
+  const algorithm = 'aes-256-cbc';
+  const key = Buffer.from(process.env.OTPSECRET, 'hex'); // Ensure this is a 32-byte hex-encoded string
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(otpToken, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const encryptedOTP =  iv.toString('hex') + ':' + encrypted;
+
+  // Create JWT token with OTP and expiration time
   const token = jwt.sign(
-    { otp: otpToken },
+    { otp: encryptedOTP },
     process.env.OTPSECRET,
     { expiresIn: process.env.OTPTIME * 60 * 1000 } // Expiry in milliseconds
   );
@@ -344,9 +359,16 @@ const verifyOTP = async (token, req) => {
 
     // Verify the JWT OTP token using the secret
     const otp_token = await utils.promisify(jwt.verify)(ptoedocresu, process.env.OTPSECRET);
-
+    const algorithm = 'aes-256-cbc';
+    const key = Buffer.from(process.env.OTPSECRET, 'hex'); // Ensure this is a 32-byte hex-encoded string
+    const parts = otp_token.otp.split(':');
+    const iv = Buffer.from(parts.shift(), 'hex');
+    const encrypted = Buffer.from(parts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
     // Compare the OTP from the query and the stored token
-    return newToken === otp_token.otp.toString(); 
+    return newToken === decrypted.toString(); 
   } catch (error) {
     // Handle JWT errors (expired token, invalid signature, etc.)
     return false;
